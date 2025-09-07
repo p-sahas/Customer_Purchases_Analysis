@@ -1,0 +1,432 @@
+---
+title: "Analysis of E-Commerce Customer Purchases Using R"
+author: "Sahas Induwara"
+date: "2025-08-04"
+output:
+  pdf_document: null
+  latex_engine: xelatex
+  word_document: default
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+library(tidyverse)
+library(ggplot2)
+library(fitdistrplus)
+library(MASS)
+library(knitr)
+
+```
+# Introduction
+
+In the competitive landscape of modern e-commerce, understanding customer behavior is essential for optimizing marketing strategies and improving user experiences. This report analyzes a dataset of 2000 customer transactions using R Language, focusing on exploratory data analysis (EDA), probability assessments, distribution fitting, and predictive modeling. The dataset includes various metrics such as purchase amounts, time spent on site, customer region, number of previous purchases, and discount usage.
+
+The primary goal is to identify key patterns and relationships within the data that can inform business decisions. Specifically, the analysis aims to determine how time spent on the website relates to customer spending, how discounts influence purchase behavior, and how customer segments differ across regions. This structured approach provides both statistical insight and practical guidance for targeted marketing and user engagement strategies.
+
+Each task in the report is accompanied by appropriate visualizations, statistical summaries, and interpretations to ensure clarity and depth. Ultimately, the analysis seeks to derive actionable insights that can support business growth and enhance customer satisfaction.
+
+```{r}
+# Load the dataset
+data <- read.csv("customer_purchases.csv")
+head(data)
+
+```
+# 1. Exploratory Data Analysis
+
+## 1.1 Summary Statistics 
+```{r}
+# Summary statistics for all numerical variables.(Removed region column Because of it's a Categorical data type)
+summary(data %>% select_if(is.numeric))
+
+```
+
+## 1.2  Creating Visualizations
+
+### 1.2.1 Histogram of purchase_amount with density overlay
+
+
+
+```{r}
+ggplot(data, aes(x = purchase_amount)) +
+  geom_histogram(aes(y = ..density..), binwidth = 5, fill = "skyblue", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Distribution of Purchase Amount",
+       x = "Purchase Amount ($)",
+       y = "Density") +
+  theme_minimal()
+
+```
+
+
+
+
+### 1.2.2 Boxplot of time_spent_on_site by region
+
+```{r}
+ggplot(data, aes(x = region, y = time_spent_on_site, fill = region)) +
+  geom_boxplot() +
+  labs(title = "Time Spent on Site by Region",
+       x = "Region",
+       y = "Time Spent on Site (minutes)") +
+  theme_minimal()
+
+```
+
+### 1.2.3 Scatterplot of "Purchase Amount" vs "Time Spent On Site"
+
+```{r}
+
+ggplot(data, aes(x = time_spent_on_site, y = purchase_amount)) +
+  geom_point(aes(color = region)) +
+  geom_smooth(method = "lm", col = "red" , se = TRUE) + #se = standerd error
+  labs(title = "Purchase Amount vs. Time Spent on Site",
+       x = "Time Spent on Site (minutes)",
+       y = "Purchase Amount ($)") 
+
+
+```
+
+## 1.3 Identify and handle any missing values
+```{r}
+# Check for missing values
+colSums(is.na(data))
+
+# If there were any missing values remove rows with missing values:
+data_cleaned <- na.omit(data)
+
+```
+## 1.4  Detect and comment on outliers
+
+```{r}
+
+# Detect outliers using IQR (InterQuartile Range) method
+detect_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25)
+  Q3 <- quantile(x, 0.75)
+  IQR <- Q3 - Q1
+  lower <- Q1 - 1.5 * IQR
+  upper <- Q3 + 1.5 * IQR
+  return(which(x < lower | x > upper))
+}
+
+# Outliers in purchase_amount
+purchase_outliers <- detect_outliers(data$purchase_amount)
+cat("Number of outliers in purchase amount:", length(purchase_outliers), "\n")
+ 
+
+# Outliers in time_spent_on_site
+time_outliers <- detect_outliers(data$time_spent_on_site)
+cat("Number of outliers in time spent on site:", length(time_outliers), "\n")
+
+
+# Display some outlier values
+cat("Purchase amount outliers (first 10):", 
+    data$purchase_amount[purchase_outliers[1:min(10, length(purchase_outliers))]], "\n")
+
+
+cat("Time spend on site outliers (first 10):",
+    data$time_spent_on_site[time_outliers[1:min(10, length(time_outliers))]], "\n")
+
+
+```
+## 1.5 Exploratory Data Analysis (EDA) Interpretation:
+
+ 
+The dataset contains 2000 observations with no missing values. Purchase amounts range from $10 to $146.69 (mean = $74.96). Time spent on site ranges from 1 to 20.41 minutes (mean = 9.963 minutes).
+
+The interquartile range ($61.62-$88.22) suggests moderate purchasing consistency
+
+The histogram shows purchase amounts are right-skewed with most purchases between $50-$100. 
+
+Boxplots reveal regional differences: Southern customers spend the least time (median ~9 mins), while Western customers spend the most (median ~10 mins). The scatterplot shows a weak positive relationship between time spent and purchase amount.
+
+Average previous purchases: 2.02 (range: 0-9 purchases)
+This indicates a mix of new customers and loyal repeat buyers
+The maximum of 9 previous purchases suggests strong customer retention potential
+
+The data shows a right-skewed distribution in purchase amounts. Some outliers are visible. Most customers spent moderate time on the site, with variations by region. Missing values appear minimal and manageable.
+
+Average time on site: 9.96 minutes (range: 1.0-20.4 minutes)
+
+55.7% discount usage rate indicates price-sensitive customer base. Binary nature (0 or 1) provides clear segmentation for promotional analysis
+
+# 2. Probability Analysis
+
+## 2.1 Required Calculations
+
+### 2.1.1 Calculate basic probabilities:
+
+```{r}
+# P(Purchase > $75)
+prob_purchase_75 <- mean(data$purchase_amount > 75)
+cat("P(Purchase > $75) =", round(prob_purchase_75, 4), "\n")
+
+
+# P(Used Discount | Purchase > $100)
+high_purchase <- data$purchase_amount > 100
+prob_discount <- mean(data$used_discount[high_purchase] == 1)
+cat("P(Used Discount | Purchase > $100) =", round(prob_discount, 4), "\n")
+```
+### 2.1.2 Contingency tables
+
+
+```{r}
+# Region vs Used Discount
+cat("Region vs Used Discount", "\n")
+region_discount <- table(data$region, data$used_discount)
+rownames(region_discount) <- c("East", "North", "South", "West")
+colnames(region_discount) <- c("No Discount", "Discount Used")
+addmargins(region_discount)
+
+# Previous Purchases vs Discount Usage
+cat("\n", "Previous Purchases vs Discount Usage" , "\n")
+prev_purchase_discount <- table(data$number_of_previous_purchases, 
+                                data$used_discount)
+colnames(prev_purchase_discount) <- c("No Discount", "Discount Used")
+addmargins(prev_purchase_discount)
+
+
+```
+
+
+## 2.3 Conditional Probabilities by Region
+
+```{r conditional-probs}
+# Calculate conditional probabilities by region
+region_stats <- data %>%
+  group_by(region) %>%
+  summarise(
+    n = n(),
+    prob_discount = mean(used_discount == 1),
+    prob_high_purchase = mean(purchase_amount > 75),
+    avg_purchase = mean(purchase_amount),
+    .groups = 'drop'
+  )
+
+cat("Conditional Probabilities by Region: ")
+print(region_stats)
+```
+## 2.4 Probability Analysis Interpretation
+
+
+Approximately 49% of customers make purchases over 75$, indicating strong puchasing power. Among high-value customers (>100%), about 70% use discounts, suggesting price sensitivity even in this segment.
+
+Regional analysis reveals relatively consistent discount usage across regions (50-58%), but the West region shows slightly higher average purchases.
+
+Customers with more previous purchases tend to use discounts more frequently, indicating loyalty program effectiveness.
+
+The probability of using a discount is fairly similar across all regions.
+
+Marketing could target customers with a history of fewer previous purchases with discounts to encourage them to buy more.
+
+This analysis is based on a limited dataset and may not represent the entire customer population.
+
+It also doesn't account for other factors that might influence purchase behavior.
+ 
+Furthermore, the observed trend where customers with higher "number_of_previous_purchases" exhibit a greater likelihood of discount usage suggests that past purchase behavior is a predictor of price responsiveness. These patterns may be modeled further using Bayesian inference or logistic regression to quantify the predictive power of these variables.
+
+ 
+# 3. Distribution Fitting
+ 
+## 3.1 Fit Distributions
+ 
+### 3.1.1 Poisson for number of previous purchase
+```{r}
+# Fit Poisson distribution to number_of_previous_purchases
+lambda_est <- mean(data$number_of_previous_purchases)
+cat("Estimated lambda for Poisson distribution:", round(lambda_est, 4), "\n")
+
+# Compare observed vs expected frequencies
+obs_freq <- table(data$number_of_previous_purchases)
+x_vals <- as.numeric(names(obs_freq))
+exp_freq <- dpois(x_vals, lambda_est) * nrow(data)
+
+comparison_poisson <- data.frame(
+  Value = x_vals,
+  Observed = as.numeric(obs_freq),
+  Expected = round(exp_freq, 1)
+)
+print("Poisson Distribution Fit:")
+print(comparison_poisson)
+
+
+# Calculate Poisson probabilities and normalize them
+poisson_probs <- dpois(x_vals, lambda_est)
+poisson_probs_normalized <- poisson_probs / sum(poisson_probs)
+
+```
+ 
+```{r}
+# Visualization of Poisson fit
+ggplot(data, aes(x = number_of_previous_purchases)) +
+  geom_histogram(aes(y = ..density..), bins = max(data$number_of_previous_purchases) + 1, 
+                 fill = "lightblue", color = "black", alpha = 0.7) +
+  geom_point(data = data.frame(x = x_vals, y = dpois(x_vals, lambda_est)),
+             aes(x = x, y = y), color = "red", size = 3) +
+  geom_line(data = data.frame(x = x_vals, y = dpois(x_vals, lambda_est)),
+            aes(x = x, y = y), color = "red", size = 1) +
+  labs(title = "Poisson Distribution Fit for Previous Purchases",
+       x = "Number of Previous Purchases",
+       y = "Density") +
+  theme_minimal()
+
+
+```
+
+### 3.1.2 Normal Distribution for Purchase Amount
+
+```{r}
+# Fit Normal distribution to purchase_amount
+mean_purchase <- mean(data$purchase_amount)
+sd_purchase <- sd(data$purchase_amount)
+cat("Estimated mean:", round(mean_purchase, 4), "\n")
+cat("Estimated standard deviation:", round(sd_purchase, 4), "\n")
+
+```
+
+```{r}
+
+# Histogram with normal overlay
+ggplot(data, aes(x = purchase_amount)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", 
+                 color = "black", alpha = 0.7) +
+  stat_function(fun = dnorm, args = list(mean = mean_purchase, sd = sd_purchase),
+                color = "red", size = 1) +
+  labs(title = "Normal Distribution Fit for Purchase Amount",
+       x = "Purchase Amount ($)",
+       y = "Density") +
+  theme_minimal()
+
+
+```
+```{r}
+sample_purchases <- sample(data$purchase_amount, 1000)
+shapiro_test <- shapiro.test(sample_purchases)
+qqnorm(sample_purchases, main = "Q-Q Plot for Purchase Amount")
+qqline(sample_purchases, col = "red")
+
+lambda_est <- mean(data$number_of_previous_purchases)
+print(lambda_est)
+
+```
+
+## 3.2 Interpretation Guidelines
+
+The Poisson distribution provides a reasonable fit for the variable 'number_of_previous_purchases', as the observed frequencies align closely with those expected under a Poisson model with $\lambda = 2.022$. 
+
+The normal distribution, with estimated parameters $\mu = 74.06$ and $\sigma = 19.8786$, provides an approximate fit for the 'purchase_amount' variable. However, the distribution exhibits heavier tails than ideal particularly on the right-hand side as confirmed by both the Q-Q plot and histogram overlay. This deviation suggests mild positive skewness but does not invalidate the use of parametric analyses under approximate normality. Nonetheless, analysts should consider alternative distributions such as the log-normal or gamma for more accurate modeling of purchase behavior in future studies.
+
+
+
+# 4. Predictive Modeling
+
+
+## 4.1 Relationship Assessment
+
+```{r correlation}
+# Correlation between time_spent and purchase_amount
+correlation <- cor(data$time_spent_on_site, data$purchase_amount)
+cat("Correlation coefficient:", round(correlation, 4), "\n")
+
+
+# Build the linear regression model
+model <- lm(purchase_amount ~ time_spent_on_site, data = data)
+
+
+# Get the fitted values
+fitted_values <- predict(model)
+
+# Plot the regression line
+ggplot(data, aes(x = time_spent_on_site, y = purchase_amount)) +
+  geom_point(aes(color = region)) +
+  geom_line(aes(y = fitted_values), col = "red") +
+  labs(title = "Purchase Amount vs. Time Spent on Site with Regression Line",
+       x = "Time Spent on Site ($)",
+       y = "Purchase Amount (minutes)")
+```
+
+**Association Type:** There is a weak positive linear association (r = 'r round(correlation, 4)') between time spent on site and purchase amount, suggesting that customers who browse longer tend to make slightly higher purchases.
+
+## 4.2 Linear Regression Model
+
+```{r regression-model}
+# Build linear regression model
+model <- lm(purchase_amount ~ time_spent_on_site, data = data)
+
+# Model summary
+print("Linear Regression Model Summary:")
+summary(model)
+
+# Extract coefficients
+beta_0 <- coef(model)[1]
+beta_1 <- coef(model)[2]
+
+cat("Fitted equation: Y =", round(beta_0, 4), "+", round(beta_1, 4), "* X\n")
+
+
+
+# Get fitted values
+data$fitted_purchase_amount <- predict(model, newdata = data)
+
+```
+
+## 4.3 Model Diagnostics and Fitted Values
+
+```{r diagnostics}
+# Get fitted values and residuals
+data$fitted_values <- fitted(model)
+data$residuals <- residuals(model)
+# Diagnostic plots
+par(mfrow = c(2, 2))
+plot(model)
+par(mfrow = c(1, 1))
+
+# Regression line over data
+ggplot(data, aes(x = time_spent_on_site, y = purchase_amount)) +
+  geom_point(aes(color = region)) +
+  geom_line(aes(y = fitted_values), color = "red", size = 1) +
+  labs(title = "Regression Line: Purchase Amount vs Time Spent",
+       x = "Time Spent on Site (minutes)",
+       y = "Purchase Amount ($)") +
+  theme_minimal()
+```
+
+## 4.4 Prediction
+
+```{r prediction}
+# Predict purchase_amount for time_spent = 12 minutes
+prediction_12min <- predict(model, newdata = data.frame(time_spent_on_site = 12))
+cat("Predicted purchase amount for 12 minutes:", round(prediction_12min, 2), "$\n")
+
+# Confidence interval for prediction
+prediction_ci <- predict(model, newdata = data.frame(time_spent_on_site = 12), 
+                        interval = "confidence")
+cat("95% Confidence Interval: [", round(prediction_ci[2], 2), ",", 
+    round(prediction_ci[3], 2), "]\n")
+
+
+```
+The linear regression model yielded the equation:
+
+$$\hat{Y} = 73.4981 + 0.1196 \times \text{(Time Spent on Site)}$$
+
+The intercept ($\beta_0 = 73.4981$) represents the expected purchase amount when browsing time is zero, while the slope ($\beta_1 = 0.1196$) indicates that for each additional minute spent on the website, the expected purchase amount increases by approximately \$0.12. However, the predictor's p-value of 0.416 ($p > 0.05$) suggests that the slope is not statistically significant at conventional confidence levels.
+
+Model fit was weak ($R^2 = 0.0003$), indicating that only 0.03\% of the variance in 'purchase_amount' is explained by 'time_spent_on_site'. The residual diagnostics (Residuals vs Fitted, Q-Q Plot, Scale-Location, and Residuals vs Leverage) did not indicate severe violations of linearity, homoscedasticity, or normality. However, the poor explanatory power suggests that 'time_spent_on_site' alone is insufficient to model purchasing behavior, and that multivariate or nonlinear models may be required to capture interaction effects or higher-order patterns.
+
+Prediction for a customer spending 12 minutes yields $\hat{Y} \approx \$74.93$ with a 95\% confidence interval of [$\$73.88$, $\$75.98$], indicating high precision due to narrow variance but limited substantive change from baseline spending.
+
+
+# Conclusion
+
+
+This analytical study applied statistical methods to e-commerce customer transaction data to uncover behavioral insights relevant to business optimization. Exploratory analysis revealed distributional asymmetry in spending, regional engagement disparities, and low linear correlation between browsing time and spending. 
+
+Probability calculations confirmed a high incidence of discount usage among high-spenders and highlighted behavioral differences between customer segments. Distribution fitting validated the use of Poisson models for purchase frequency and indicated the normal approximation for purchase amount may require alternative modeling for tail-heavy behavior.
+
+Linear regression modeling identified a statistically weak but logically consistent positive association between session duration and transaction size. Despite the model's limited predictive power, it offers a foundation for more complex machine learning algorithms such as random forests or gradient boosting that can incorporate nonlinear patterns and high-dimensional predictors.
+
+From a business perspective, the results support developing data-driven personalization strategies, including region-specific campaigns, loyalty-based discount schemes, and UX enhancements to increase user engagement time. Future work should integrate richer features (e.g., clickstream data, product categories) and consider advanced statistical models to improve accuracy and interpretability in real-time applications.
+
